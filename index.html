@@ -174,9 +174,12 @@ body{font-family:var(--f);background:var(--bg);color:var(--txt);display:flex;fle
 .pcwrap::-webkit-scrollbar-track{background:transparent}
 .pcwrap canvas{
   display:block;
-  touch-action:none;
+  touch-action:pan-x pan-y; /* scroll natif par défaut — JS override si besoin */
   cursor:grab;
   /* taille fixée par JS, pas de width:100% */
+}
+.pcwrap canvas.nopan{
+  touch-action:none; /* activé uniquement pendant pinch ou drag poste */
 }
 .pcwrap canvas.pgrab{cursor:grabbing}
 .pcwrap canvas.pcross{cursor:crosshair}
@@ -1867,7 +1870,7 @@ function drawPlan2(){
   planCtx.clearRect(0,0,dW,dH);
   planCtx.drawImage(planImgEl,0,0,dW,dH);
   // sz en pixels canvas = 7px visuels / scale CSS
-  var VRAD=7;
+  var VRAD=Math.max(5, Math.min(12, Math.round(_pz.baseW * 0.018))); // proportionnel à la largeur du plan
   var sz=VRAD/_pz.sc;
   var fsz=Math.max(4,Math.round(sz));
   planPostes.forEach(function(p){
@@ -1942,28 +1945,33 @@ function setupPlanEv(){
     if(e.touches.length===2){
       // Pinch : bloquer le scroll natif
       e.preventDefault();
+      nc.classList.add('nopan');
       _ld=Math.hypot(
         e.touches[1].clientX-e.touches[0].clientX,
         e.touches[1].clientY-e.touches[0].clientY
       );
       planDrag=null;return;
     }
-    // 1 doigt — laisser le scroll natif fonctionner SAUF si on déplace un poste
+    // 1 doigt
     var idx=findP(e);
     if(planTool==='cur'){
       if(idx>=0){
-        e.preventDefault(); // bloquer scroll pour drag poste
+        // Drag d'un poste existant — bloquer scroll
+        e.preventDefault();
+        nc.classList.add('nopan');
         var pos=gpos(e);
         planDrag=idx;planDragOff={x:pos.x-planPostes[idx].x,y:pos.y-planPostes[idx].y};
         _tapPos=pos;_isDrag=false;
         _tapT=setTimeout(function(){_tapT=null;},300);
         nc.classList.add('pgrab');
       }
-      // Pas de poste : scroll natif du wrap (pas de preventDefault)
+      // Pas de poste sous le doigt : scroll natif du wrap (touch-action:pan-x pan-y)
     } else if(planTool==='era'){
       if(idx>=0){e.preventDefault();conf2('Retirer du plan ?','Le poste reste dans la liste.',function(){planPostes.splice(idx,1);drawPlan2();saveIvState();});}
     } else {
+      // Mode pose de poste
       e.preventDefault();
+      nc.classList.add('nopan');
       var pos=gpos(e);
       var pt=gPT(planTool);
       var st=postes.filter(function(x){return x.type===planTool;});
@@ -2014,7 +2022,7 @@ function setupPlanEv(){
   };
 
   nc.ontouchend=function(e){
-    nc.classList.remove('pgrab');updCur();
+    nc.classList.remove('pgrab','nopan');updCur();
     if(planDrag!==null){
       if(_tapT&&!_isDrag){
         var pp=planPostes[planDrag];var po=postes.find(function(x){return x.id===pp.posteId;});
@@ -2806,10 +2814,29 @@ function genDocx(iv, c, postesIv, today, todayLong, planB64, sig){
   D.Packer.toBlob(doc).then(function(blob){
     var clientName = (c?c.nom:'Rapport').replace(/[^a-zA-Z0-9]/g,'_');
     var fname = 'Rapport_'+clientName+'_'+today.replace(/\//g,'-')+'.docx';
-    var a=document.createElement('a');
-    a.href=URL.createObjectURL(blob);
-    a.download=fname;a.click();
-    toast2('Rapport téléchargé !');
+
+    // Android : utiliser Web Share API si disponible (partage natif)
+    if(navigator.share && navigator.canShare){
+      var file = new File([blob], fname, {type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
+      if(navigator.canShare({files:[file]})){
+        navigator.share({files:[file], title:'Rapport '+clientName, text:'Rapport d\'intervention Hood Hygiène Pro'})
+          .then(function(){ toast2('✅ Rapport partagé !'); })
+          .catch(function(err){
+            if(err.name!=='AbortError') dlFallback();
+          });
+      } else { dlFallback(); }
+    } else { dlFallback(); }
+
+    function dlFallback(){
+      var a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download=fname;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 1000);
+      toast2('📄 Rapport téléchargé !');
+    }
+
     // Upload vers Google Drive
     window._lastRapportClient = c?c.nom:'Client';
     if(window.google && window.google.accounts){
