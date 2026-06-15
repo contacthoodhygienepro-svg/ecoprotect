@@ -23,23 +23,6 @@
     }
   ],
   "categories": ["business", "productivity"],
-  "shortcuts": [
-    {
-      "name": "Nouvelle intervention",
-      "short_name": "+ Intervention",
-      "description": "Démarrer une nouvelle intervention",
-      "url": "./index.html#today",
-      "icons": [{"src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'><text y='80' font-size='80'>▶</text></svg>", "sizes": "96x96"}]
-    },
-    {
-      "name": "Planning du jour",
-      "short_name": "Planning",
-      "description": "Voir le planning",
-      "url": "./index.html#planning",
-      "icons": [{"src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'><text y='80' font-size='80'>📅</text></svg>", "sizes": "96x96"}]
-    }
-  ],
-  "screenshots": [],
   "prefer_related_applications": false,
   "related_applications": []
 }
