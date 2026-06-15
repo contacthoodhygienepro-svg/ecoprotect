@@ -1939,13 +1939,14 @@ function setupPlanEv(){
   // ── TOUCH ──
   var _ld=0,_tapT=null,_tapPos=null,_isDrag=false;
   var _lt=0,_ltp={x:0,y:0}; // double-tap
+  var _panStart=null; // déplacement 1 doigt sur plan zoomé
 
   nc.ontouchstart=function(e){
     dismissHint();
     if(e.touches.length===2){
-      // Pinch : bloquer le scroll natif
       e.preventDefault();
       nc.classList.add('nopan');
+      _panStart=null;
       _ld=Math.hypot(
         e.touches[1].clientX-e.touches[0].clientX,
         e.touches[1].clientY-e.touches[0].clientY
@@ -1956,22 +1957,29 @@ function setupPlanEv(){
     var idx=findP(e);
     if(planTool==='cur'){
       if(idx>=0){
-        // Drag d'un poste existant — bloquer scroll
+        // Drag d'un poste existant
         e.preventDefault();
         nc.classList.add('nopan');
+        _panStart=null;
         var pos=gpos(e);
         planDrag=idx;planDragOff={x:pos.x-planPostes[idx].x,y:pos.y-planPostes[idx].y};
         _tapPos=pos;_isDrag=false;
         _tapT=setTimeout(function(){_tapT=null;},300);
         nc.classList.add('pgrab');
+      } else {
+        // Pas de poste : déplacement du plan (pan manuel via JS)
+        e.preventDefault();
+        nc.classList.add('nopan');
+        _panStart={x:e.touches[0].clientX+wrap.scrollLeft, y:e.touches[0].clientY+wrap.scrollTop};
+        planDrag=null;
       }
-      // Pas de poste sous le doigt : scroll natif du wrap (touch-action:pan-x pan-y)
     } else if(planTool==='era'){
       if(idx>=0){e.preventDefault();conf2('Retirer du plan ?','Le poste reste dans la liste.',function(){planPostes.splice(idx,1);drawPlan2();saveIvState();});}
     } else {
       // Mode pose de poste
       e.preventDefault();
       nc.classList.add('nopan');
+      _panStart=null;
       var pos=gpos(e);
       var pt=gPT(planTool);
       var st=postes.filter(function(x){return x.type===planTool;});
@@ -1999,7 +2007,6 @@ function setupPlanEv(){
         var oldSc=_pz.sc;
         _pz.sc=Math.min(8,Math.max(1,_pz.sc*f));
         var r=_pz.sc/oldSc;
-        // Ajuster scroll pour garder le point central fixe
         var mx=mid.x-wr.left+wrap.scrollLeft;
         var my=mid.y-wr.top+wrap.scrollTop;
         _pzApplySize();
@@ -2008,6 +2015,13 @@ function setupPlanEv(){
         wrap.scrollTop=my*r-(mid.y-wr.top);
       }
       _ld=d;return;
+    }
+    // Pan 1 doigt (déplacement du plan zoomé)
+    if(_panStart){
+      e.preventDefault();
+      wrap.scrollLeft=_panStart.x-e.touches[0].clientX;
+      wrap.scrollTop=_panStart.y-e.touches[0].clientY;
+      return;
     }
     // Drag poste
     if(planDrag!==null&&planTool==='cur'){
@@ -2023,6 +2037,8 @@ function setupPlanEv(){
 
   nc.ontouchend=function(e){
     nc.classList.remove('pgrab','nopan');updCur();
+    _panStart=null;
+    _ld=0;
     if(planDrag!==null){
       if(_tapT&&!_isDrag){
         var pp=planPostes[planDrag];var po=postes.find(function(x){return x.id===pp.posteId;});
