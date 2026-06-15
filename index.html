@@ -2041,11 +2041,24 @@ function setupPlanEv(){
 
   nc.ontouchend=function(e){
     nc.classList.remove('pgrab','nopan');updCur();
-    // Si c'était un tap sans déplacement sur zone vide → vérifier quand même si poste sous le doigt
+    // Si c'était un tap sans déplacement → ouvrir fiche poste
     if(_panStart && !_panStart.moved){
-      var idx=findP({touches:[{clientX:_panStart.cx, clientY:_panStart.cy}]});
+      var t=e.changedTouches[0];
+      // Recalculer la position canvas depuis les coordonnées du tap
+      var r=nc.getBoundingClientRect();
+      var scaleX=nc.width/r.width;
+      var scaleY=nc.height/r.height;
+      var tapPos={
+        x:Math.round((t.clientX-r.left)*scaleX/_pz.dpr),
+        y:Math.round((t.clientY-r.top)*scaleY/_pz.dpr)
+      };
+      var HIT=20/_pz.sc;
+      var idx=planPostes.findIndex(function(p){
+        return Math.hypot(p.x-tapPos.x,p.y-tapPos.y)<HIT;
+      });
       if(idx>=0){
-        var pp=planPostes[idx];var po=postes.find(function(x){return x.id===pp.posteId;});
+        var pp=planPostes[idx];
+        var po=postes.find(function(x){return x.id===pp.posteId;});
         if(po)openFp(po.id);
       }
     }
