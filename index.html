@@ -471,6 +471,7 @@ if('serviceWorker' in navigator){
         <button onclick="document.getElementById('planPIgal').click()" style="background:var(--accent3);color:var(--accent);border:1px solid var(--accent);border-radius:8px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer">🖼️ Galerie</button>
         <button onclick="renameCurPlan()" style="background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer">✏️ Renommer</button>
         <button onclick="deleteCurPlan()" style="background:none;border:none;color:var(--red);font-size:12px;cursor:pointer">🗑️ Supprimer</button>
+        <button onclick="printPlan()" style="background:var(--accent3);border:1px solid var(--accent);border-radius:8px;color:var(--accent);font-size:12px;font-weight:700;padding:5px 10px;cursor:pointer">🖨️ Imprimer</button>
       </div>
       <input type="file" id="planPIcam" accept="image/*" capture="environment" onchange="loadPlanFile(event)" style="display:none">
       <input type="file" id="planPIgal" accept="image/*" onchange="loadPlanFile(event)" style="display:none">
@@ -1759,6 +1760,60 @@ function deleteCurPlan(){
   }
   rPlansNav();saveIvState();toast2('Plan supprimé');
 }
+
+function printPlan(){
+  if(!planImg2){toast2('Aucun plan chargé');return;}
+  toast2('Préparation du plan...');
+  capturePlanImage().then(function(b64){
+    if(!b64){toast2('Erreur capture plan');return;}
+    var dataUrl='data:image/png;base64,'+b64;
+    // Tenter partage natif Android (pièce jointe)
+    if(navigator.share && navigator.canShare){
+      fetch(dataUrl).then(function(r){return r.blob();}).then(function(blob){
+        var iv=gI(activeIv);
+        var c=iv?gC(iv.clientId):null;
+        var clientName=c?c.nom.replace(/[^a-zA-Z0-9]/g,'_'):'Plan';
+        var planNom=(iv&&iv.plans&&iv.plans[curPlanIdx])?iv.plans[curPlanIdx].nom:'Plan';
+        var fname=clientName+'_'+planNom+'.png';
+        var file=new File([blob],fname,{type:'image/png'});
+        if(navigator.canShare({files:[file]})){
+          navigator.share({files:[file],title:fname,text:'Plan — Hood Hygiène Pro'})
+            .then(function(){toast2('✅ Plan partagé !');})
+            .catch(function(err){if(err.name!=='AbortError')_printFallback(dataUrl);});
+        } else { _printFallback(dataUrl); }
+      }).catch(function(){_printFallback(dataUrl);});
+    } else {
+      _printFallback(dataUrl);
+    }
+  });
+}
+
+function _printFallback(dataUrl){
+  // Ouvrir dans un nouvel onglet → l'utilisateur peut imprimer ou enregistrer
+  var w=window.open('','_blank');
+  if(!w){toast2('Autorisez les popups pour imprimer');return;}
+  var iv=gI(activeIv);
+  var c=iv?gC(iv.clientId):null;
+  var clientNom=c?c.nom:'';
+  var planNom=(iv&&iv.plans&&iv.plans[curPlanIdx])?iv.plans[curPlanIdx].nom:'Plan';
+  w.document.write(
+    '<!DOCTYPE html><html><head><meta charset="UTF-8">'+
+    '<title>'+clientNom+' — '+planNom+'</title>'+
+    '<style>*{margin:0;padding:0;box-sizing:border-box}body{background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif}'+
+    'h2{font-size:14px;color:#333;margin-bottom:8px;text-align:center}'+
+    'p{font-size:11px;color:#888;margin-top:6px;text-align:center}'+
+    'img{max-width:100%;max-height:90vh;border:1px solid #ccc}'+
+    '@media print{h2,p,button{display:none}img{max-height:100vh;border:none}}'+
+    'button{margin-top:12px;padding:10px 24px;background:#2E7D32;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer}'+
+    '</style></head><body>'+
+    '<h2>Hood Hygiène Pro — '+clientNom+' — '+planNom+'</h2>'+
+    '<img src="'+dataUrl+'" alt="Plan">'+
+    '<p>Appuyez sur Imprimer ou utilisez le menu de votre navigateur</p>'+
+    '<button onclick="window.print()">🖨️ Imprimer</button>'+
+    '</body></html>'
+  );
+  w.document.close();
+}
 function loadPlan(e){loadPlanFile(e);}
 function loadPlanFile(e){
   var f=e.target.files[0];if(!f)return;
@@ -1937,7 +1992,7 @@ function setupPlanEv(){
   }
 
   // ── TOUCH ──
-  var _ld=0,_tapT=null,_tapPos=null,_isDrag=false;
+  var _ld=0,_wasTap=false,_tapPos=null,_isDrag=false;
   var _lt=0,_ltp={x:0,y:0}; // double-tap
   var _panStart=null; // déplacement 1 doigt sur plan zoomé
 
@@ -1963,8 +2018,7 @@ function setupPlanEv(){
         _panStart=null;
         var pos=gpos(e);
         planDrag=idx;planDragOff={x:pos.x-planPostes[idx].x,y:pos.y-planPostes[idx].y};
-        _tapPos=pos;_isDrag=false;
-        _tapT=setTimeout(function(){_tapT=null;},300);
+        _tapPos=pos;_isDrag=false;_wasTap=true;
         nc.classList.add('pgrab');
       } else {
         // Pas de poste : déplacement du plan (pan manuel via JS)
@@ -2033,7 +2087,7 @@ function setupPlanEv(){
       var pos=gpos(e);
       planPostes[planDrag].x=pos.x-planDragOff.x;
       planPostes[planDrag].y=pos.y-planDragOff.y;
-      _isDrag=true;clearTimeout(_tapT);_tapT=null;
+      _isDrag=true;_wasTap=false;
       if(_pzRaf)return;
       _pzRaf=requestAnimationFrame(function(){_pzRaf=null;drawPlan2();});
     }
@@ -2041,16 +2095,16 @@ function setupPlanEv(){
 
   nc.ontouchend=function(e){
     nc.classList.remove('pgrab','nopan');updCur();
+    var tch=e.changedTouches[0];
     // Si c'était un tap sans déplacement → ouvrir fiche poste
     if(_panStart && !_panStart.moved){
-      var t=e.changedTouches[0];
       // Recalculer la position canvas depuis les coordonnées du tap
       var r=nc.getBoundingClientRect();
       var scaleX=nc.width/r.width;
       var scaleY=nc.height/r.height;
       var tapPos={
-        x:Math.round((t.clientX-r.left)*scaleX/_pz.dpr),
-        y:Math.round((t.clientY-r.top)*scaleY/_pz.dpr)
+        x:Math.round((tch.clientX-r.left)*scaleX/_pz.dpr),
+        y:Math.round((tch.clientY-r.top)*scaleY/_pz.dpr)
       };
       var HIT=20/_pz.sc;
       var idx=planPostes.findIndex(function(p){
@@ -2065,33 +2119,32 @@ function setupPlanEv(){
     _panStart=null;
     _ld=0;
     if(planDrag!==null){
-      if(_tapT&&!_isDrag){
-        var pp=planPostes[planDrag];var po=postes.find(function(x){return x.id===pp.posteId;});
-        if(po)openFp(po.id);
+      if(_wasTap&&!_isDrag){
+        var pp2=planPostes[planDrag];var po2=postes.find(function(x){return x.id===pp2.posteId;});
+        if(po2)openFp(po2.id);
       }
-      clearTimeout(_tapT);_tapT=null;
+      _wasTap=false;
       if(_isDrag)saveIvState();
       planDrag=null;_isDrag=false;
     }
     // Double-tap → zoom x2
-    var t=e.changedTouches[0];
     var now=Date.now();
-    if(now-_lt<280&&Math.hypot(t.clientX-_ltp.x,t.clientY-_ltp.y)<20){
+    if(now-_lt<280&&Math.hypot(tch.clientX-_ltp.x,tch.clientY-_ltp.y)<20){
       if(_pz.sc>1.5)pzBtn(0);
       else{
         // Zoom centré sur le tap
         var wr=wrap.getBoundingClientRect();
-        var mx=t.clientX-wr.left+wrap.scrollLeft;
-        var my=t.clientY-wr.top+wrap.scrollTop;
+        var mx=tch.clientX-wr.left+wrap.scrollLeft;
+        var my=tch.clientY-wr.top+wrap.scrollTop;
         var oldSc=_pz.sc;
         _pz.sc=Math.min(8,_pz.sc*2.5);
-        var r=_pz.sc/oldSc;
+        var ratio2=_pz.sc/oldSc;
         _pzApplySize();drawPlan2();
-        wrap.scrollLeft=mx*r-(t.clientX-wr.left);
-        wrap.scrollTop=my*r-(t.clientY-wr.top);
+        wrap.scrollLeft=mx*ratio2-(tch.clientX-wr.left);
+        wrap.scrollTop=my*ratio2-(tch.clientY-wr.top);
       }
     }
-    _lt=now;_ltp={x:t.clientX,y:t.clientY};
+    _lt=now;_ltp={x:tch.clientX,y:tch.clientY};
   };
 
   // ── Souris (PC) ──
@@ -2567,7 +2620,7 @@ async function sendIA(){
       rapport.replace(/</g,'&lt;') + '</div>' +
       '<div style="display:flex;gap:8px;margin-top:12px">' +
         '<button onclick="copyRapport()" style="flex:1;background:var(--accent);color:#fff;border:none;border-radius:var(--rad3);padding:10px;font-size:13px;font-weight:600;cursor:pointer">Copier</button>' +
-        '<button onclick="dlRapport()" style="flex:1;background:var(--accent3);color:var(--accent);border:1px solid var(--accent);border-radius:var(--rad3);padding:10px;font-size:13px;font-weight:600;cursor:pointer">📄 Télécharger PDF</button>' +
+        '<button onclick="dlRapport()" style="flex:1;background:var(--accent3);color:var(--accent);border:1px solid var(--accent);border-radius:var(--rad3);padding:10px;font-size:13px;font-weight:600;cursor:pointer">📄 Télécharger DOCX</button>' +
         '<button onclick="emailRapport()" style="flex:1;background:var(--accent3);color:var(--accent);border:1px solid var(--accent);border-radius:var(--rad3);padding:10px;font-size:13px;font-weight:600;cursor:pointer">Email</button>' +
       '</div>';
     body.scrollTop = body.scrollHeight;
